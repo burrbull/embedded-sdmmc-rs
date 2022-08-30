@@ -177,9 +177,7 @@ where
             trace!("Reset card..");
             // Supply minimum of 74 clock cycles without CS asserted.
             s.cs_high()?;
-            for _ in 0..10 {
-                s.send(0xFF)?;
-            }
+            s.transfer(&mut [0xFF; 10])?;
             // Assert CS
             s.cs_low()?;
             // Enter SPI mode
@@ -309,9 +307,7 @@ where
         ];
         buf[5] = crc7(&buf[0..5]);
 
-        for b in buf.iter() {
-            self.send(*b)?;
-        }
+        self.transfer(&mut buf)?;
 
         // skip stuff byte for stop read
         if command == CMD12 {
@@ -330,21 +326,19 @@ where
 
     /// Receive a byte from the SD card by clocking in an 0xFF byte.
     fn receive(&self) -> Result<u8, Error> {
-        self.transfer(0xFF)
+        self.transfer(&mut [0xFF]).map(|b| b[0])
     }
 
     /// Send a byte from the SD card.
     fn send(&self, out: u8) -> Result<(), Error> {
-        let _ = self.transfer(out)?;
+        let _ = self.transfer(&mut [out])?;
         Ok(())
     }
 
     /// Send one byte and receive one byte.
-    fn transfer(&self, out: u8) -> Result<u8, Error> {
+    fn transfer<'a>(&self, out: &'a mut [u8]) -> Result<&'a [u8], Error> {
         let mut spi = self.spi.borrow_mut();
-        spi.transfer(&mut [out])
-            .map(|b| b[0])
-            .map_err(|_e| Error::Transport)
+        spi.transfer(out).map_err(|_e| Error::Transport)
     }
 
     /// Spin until the card returns 0xFF, or we spin too many times and
