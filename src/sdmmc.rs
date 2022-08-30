@@ -23,9 +23,8 @@ const DEFAULT_DELAY_COUNT: u32 = 32_000;
 /// bytes without Chip Select asserted (which puts the card into SPI mode).
 pub struct SdMmcSpi<SPI, CS>
 where
-    SPI: embedded_hal::blocking::spi::Transfer<u8>,
-    CS: embedded_hal::digital::v2::OutputPin,
-    <SPI as embedded_hal::blocking::spi::Transfer<u8>>::Error: core::fmt::Debug,
+    SPI: embedded_hal::spi::blocking::SpiBus<u8>,
+    CS: embedded_hal::digital::blocking::OutputPin,
 {
     spi: RefCell<SPI>,
     cs: RefCell<CS>,
@@ -38,9 +37,8 @@ where
 /// Uses SPI mode.
 pub struct BlockSpi<'a, SPI, CS>(&'a mut SdMmcSpi<SPI, CS>)
 where
-    SPI: embedded_hal::blocking::spi::Transfer<u8>,
-    CS: embedded_hal::digital::v2::OutputPin,
-    <SPI as embedded_hal::blocking::spi::Transfer<u8>>::Error: core::fmt::Debug;
+    SPI: embedded_hal::spi::blocking::SpiBus<u8>,
+    CS: embedded_hal::digital::blocking::OutputPin;
 
 /// The possible errors `SdMmcSpi` can generate.
 #[cfg_attr(feature = "defmt-log", derive(defmt::Format))]
@@ -138,9 +136,8 @@ impl Default for AcquireOpts {
 
 impl<SPI, CS> SdMmcSpi<SPI, CS>
 where
-    SPI: embedded_hal::blocking::spi::Transfer<u8>,
-    CS: embedded_hal::digital::v2::OutputPin,
-    <SPI as embedded_hal::blocking::spi::Transfer<u8>>::Error: core::fmt::Debug,
+    SPI: embedded_hal::spi::blocking::SpiBus<u8>,
+    CS: embedded_hal::digital::blocking::OutputPin,
 {
     /// Create a new SD/MMC controller using a raw SPI interface.
     pub fn new(spi: SPI, cs: CS) -> SdMmcSpi<SPI, CS> {
@@ -177,7 +174,7 @@ where
             trace!("Reset card..");
             // Supply minimum of 74 clock cycles without CS asserted.
             s.cs_high()?;
-            s.transfer(&mut [0xFF; 10])?;
+            s.transfer_in_place(&mut [0xFF; 10])?;
             // Assert CS
             s.cs_low()?;
             // Enter SPI mode
@@ -307,7 +304,7 @@ where
         ];
         buf[5] = crc7(&buf[0..5]);
 
-        self.transfer(&mut buf)?;
+        self.transfer_in_place(&mut buf)?;
 
         // skip stuff byte for stop read
         if command == CMD12 {
@@ -326,19 +323,21 @@ where
 
     /// Receive a byte from the SD card by clocking in an 0xFF byte.
     fn receive(&self) -> Result<u8, Error> {
-        self.transfer(&mut [0xFF]).map(|b| b[0])
+        let mut buffer = [0xFF];
+        self.transfer_in_place(&mut buffer)?;
+        Ok(buffer[0])
     }
 
     /// Send a byte from the SD card.
     fn send(&self, out: u8) -> Result<(), Error> {
-        let _ = self.transfer(&mut [out])?;
+        let _ = self.transfer_in_place(&mut [out])?;
         Ok(())
     }
 
     /// Send one byte and receive one byte.
-    fn transfer<'a>(&self, out: &'a mut [u8]) -> Result<&'a [u8], Error> {
+    fn transfer_in_place<'a>(&self, out: &'a mut [u8]) -> Result<(), Error> {
         let mut spi = self.spi.borrow_mut();
-        spi.transfer(out).map_err(|_e| Error::Transport)
+        spi.transfer_in_place(out).map_err(|_e| Error::Transport)
     }
 
     /// Spin until the card returns 0xFF, or we spin too many times and
@@ -358,9 +357,8 @@ where
 
 impl<SPI, CS> BlockSpi<'_, SPI, CS>
 where
-    SPI: embedded_hal::blocking::spi::Transfer<u8>,
-    CS: embedded_hal::digital::v2::OutputPin,
-    <SPI as embedded_hal::blocking::spi::Transfer<u8>>::Error: core::fmt::Debug,
+    SPI: embedded_hal::spi::blocking::SpiBus<u8>,
+    CS: embedded_hal::digital::blocking::OutputPin,
 {
     /// Get a temporary borrow on the underlying SPI device. Useful if you
     /// need to re-clock the SPI.
@@ -477,9 +475,8 @@ where
 
 impl<SPI, CS> BlockDevice for BlockSpi<'_, SPI, CS>
 where
-    SPI: embedded_hal::blocking::spi::Transfer<u8>,
-    <SPI as embedded_hal::blocking::spi::Transfer<u8>>::Error: core::fmt::Debug,
-    CS: embedded_hal::digital::v2::OutputPin,
+    SPI: embedded_hal::spi::blocking::SpiBus<u8>,
+    CS: embedded_hal::digital::blocking::OutputPin,
 {
     type Error = Error;
 
@@ -555,9 +552,8 @@ where
 
 impl<SPI, CS> Drop for BlockSpi<'_, SPI, CS>
 where
-    SPI: embedded_hal::blocking::spi::Transfer<u8>,
-    <SPI as embedded_hal::blocking::spi::Transfer<u8>>::Error: core::fmt::Debug,
-    CS: embedded_hal::digital::v2::OutputPin,
+    SPI: embedded_hal::spi::blocking::SpiBus<u8>,
+    CS: embedded_hal::digital::blocking::OutputPin,
 {
     fn drop(&mut self) {
         self.deinit()
